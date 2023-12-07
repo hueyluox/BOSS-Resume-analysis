@@ -1,0 +1,174 @@
+// ==UserScript==
+// @name         BOSS自动回复消息插件
+// @namespace    http://tampermonkey.net/
+// @version      0.1
+// @description  尝试在页面加载后自动点击下拉菜单并选择特定项目
+// @author       Oscar
+// @match        *://www.zhipin.com/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_addStyle
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    let lastMessage = '';
+    let scriptRunning = true; // 控制脚本运行的标志位
+
+    function checkForNewMessages() {
+        if (!scriptRunning) return;
+
+        // 只选择对方的消息元素
+        const incomingMessages = document.querySelectorAll('.chat-message-list .item-friend');
+        if (incomingMessages.length > 0) {
+            const lastIncomingMessage = incomingMessages[incomingMessages.length - 1];
+            const lastIncomingMessageText = lastIncomingMessage.innerText.trim();
+
+            if (lastMessage !== lastIncomingMessageText) {
+                lastMessage = lastIncomingMessageText;
+                console.log("发现对方的新消息，正在处理...");
+                processMessage(lastIncomingMessage);
+            }
+        } else {
+            console.log("等待新消息...");
+        }
+    }
+
+    function processMessage(messageElement) {
+        messageElement.click();
+        setTimeout(() => {
+            const conversationText = extractConversation();
+            console.log("发送给GPT的对话内容：", conversationText);
+            sendToGPT3(conversationText, false);
+        }, 1000);
+    }
+
+    function extractConversation() {
+        const messageItems = document.querySelectorAll('.chat-message-list .message-item');
+        if (!messageItems.length) {
+            console.log('没有找到消息项。');
+            return '';
+        }
+
+        let conversation = '';
+        messageItems.forEach(item => {
+            const textElements = item.querySelectorAll('.text span');
+            if (!textElements.length) {
+                console.log('没有找到文本元素。');
+            }
+
+            textElements.forEach(span => {
+                conversation += span.innerText + "\n";
+                console.log('提取的文本：', span.innerText);
+            });
+        });
+
+        return conversation.trim();
+    }
+
+
+function sendToGPT3(text, isRegenerate) {
+    if (!text.trim()) return;
+
+    const apiKey = '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';
+    console.log("发送给GPT的数据：", text);
+
+    // 构建消息数组
+    let messages = [
+        {
+            role: "user", // 标识用户角色
+            content: text
+        }
+    ];
+
+    GM_xmlhttpRequest({
+        method: "POST",
+        url: "https://api.openai.com/v1/chat/completions",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + apiKey
+        },
+        data: JSON.stringify({
+            model: "gpt-3.5-turbo",
+            messages: messages, // 使用消息数组
+            max_tokens: 2048
+        }),
+        onload: function(response) {
+            console.log("收到GPT响应：", response.responseText);
+            try {
+                const responseData = JSON.parse(response.responseText);
+                if (responseData.choices && responseData.choices.length > 0) {
+                    const reply = responseData.choices[0].message.content.trim();
+                    console.log("从GPT获取的回复：", reply);
+                    askToSend(reply, text, isRegenerate);
+                } else {
+                    console.error('GPT响应格式不正确或无回复内容', responseData);
+                }
+            } catch (error) {
+                console.error('处理GPT响应时发生错误', error);
+            }
+        },
+        onerror: function(error) {
+            console.error('请求GPT时发生错误', error);
+        }
+    });
+}
+
+
+    function askToSend(reply, originalText, isRegenerate) {
+        let message = "回复:\n" + reply; // 只显示GPT的回复内容
+
+        if (confirm(message)) {
+            if (!isRegenerate) {
+                postReply(reply);
+            } else {
+                sendToGPT3(originalText, false); // 如果是重新生成，则再次调用GPT
+            }
+        } else {
+            if (!isRegenerate) {
+                scriptRunning = false; // 如果用户取消且不是重新生成，则停止脚本
+            }
+        }
+    }
+
+
+    function postReply(reply) {
+        attemptToSend(reply, 10); // 尝试10次，每次间隔200毫秒
+    }
+
+    function attemptToSend(reply, attemptsLeft) {
+        const replyBox = document.querySelector('#boss-chat-editor-input');
+        if (replyBox) {
+            replyBox.innerText = reply;
+        } else {
+            console.error('无法找到回复框');
+            return;
+        }
+
+        const sendButton = document.querySelector('.submit-content .submit.active');
+        if (sendButton && sendButton.textContent.includes('发送')) {
+            sendButton.click();
+        } else if (attemptsLeft > 0) {
+            setTimeout(() => attemptToSend(reply, attemptsLeft - 1), 200); // 重新尝试
+        } else {
+            console.error('无法找到发送按钮');
+        }
+    }
+
+    // 每3秒检查一次新消息
+    const intervalId = setInterval(checkForNewMessages, 3000);
+
+    // 在页面上添加一个按钮来停止脚本
+    const stopButton = document.createElement('button');
+    stopButton.textContent = '停止自动回复脚本';
+    stopButton.style.position = 'fixed';
+    stopButton.style.bottom = '10px';
+    stopButton.style.right = '10px';
+    stopButton.style.zIndex = 1000;
+    stopButton.onclick = function() {
+        scriptRunning = false;
+        clearInterval(intervalId);
+        stopButton.remove(); // 移除停止按钮
+        console.log('脚本已停止。');
+    };
+    document.body.appendChild(stopButton);
+})();
