@@ -1,0 +1,247 @@
+// ==UserScript==
+// @name         BOSS直聘分析简历插件
+// @namespace    http://tampermonkey.net/
+// @version      0.1
+// @description  尝试在页面加载后自动点击下拉菜单并选择特定项目
+// @author       Oscar
+// @match        *://www.zhipin.com/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_addStyle
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    // 数据存储数组
+    var interviewData = [];
+
+    // 将数据添加到数组中的函数
+    function addDataToInterviewData(resumeContent, analysisResult) {
+        interviewData.push({ resumeContent: resumeContent, analysisResult: analysisResult });
+        console.log('数据已添加到数组:', resumeContent, analysisResult);
+    }
+
+    // 生成CSV文件并提供下载的函数
+    function downloadCSV() {
+        var csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "面试人,分析结果\n"; // CSV头部
+
+        // 添加数据行
+        interviewData.forEach(function(row) {
+            csvContent += row.resumeContent + "," + row.analysisResult + "\n";
+        });
+
+        // 创建下载链接
+        var encodedUri = encodeURI(csvContent);
+        var link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "interview_data.csv");
+        document.body.appendChild(link);
+
+        // 触发下载
+        link.click();
+    }
+
+    // 在网页上添加一个下载按钮
+    function addDownloadButton() {
+        var downloadButton = document.createElement("button");
+        downloadButton.innerHTML = "下载简历分析数据";
+        downloadButton.style.position = "fixed";
+        downloadButton.style.top = "20px";
+        downloadButton.style.left = "20px";
+        downloadButton.style.zIndex = 1000;
+        downloadButton.style.fontSize = "16px"; // 增加字体大小
+        downloadButton.style.padding = "10px"; // 增加按钮填充
+        downloadButton.style.backgroundColor = "#4CAF50"; // 设置按钮颜色
+        downloadButton.style.color = "white"; // 设置文字颜色
+
+        downloadButton.onclick = downloadCSV;
+
+        document.body.appendChild(downloadButton);
+    }
+    const OPENAI_API_KEY = '';
+    var hasClickedDropDownMenu = false; // 标志变量，用于记录是否已经点击过下拉菜单
+
+    function clickDropDownMenu() {
+        if (hasClickedDropDownMenu) {
+            return; // 如果已经点击过下拉菜单，就不再执行
+        }
+
+        var dropMenuLabel = document.querySelector('.ui-dropmenu-label');
+        if (dropMenuLabel) {
+            dropMenuLabel.click();
+            hasClickedDropDownMenu = true; // 标记为已点击
+            setTimeout(selectDropDownItem, 1000); // 等待1000毫秒以确保菜单项出现
+        } else {
+            console.error('找不到下拉菜单');
+        }
+    }
+
+    function selectDropDownItem() {
+        var targetText = 'spa按摩师 _ 深圳  8-13K'; // 您想点击的菜单项文本
+        var dropItems = Array.from(document.querySelectorAll('.ui-dropmenu-list .job-item'));
+        var targetItem = dropItems.find(item => item.textContent.includes(targetText));
+        if (targetItem) {
+            targetItem.click();
+            var hasClickedFilter = false; // 用于记录是否已点击过筛选按钮
+            var hasClickedApply = false; // 用于记录是否已点击过应用按钮
+            var hasClickedConfirm = false; // 用于记录是否已点击过确定按钮
+            var hasClickedConfirm2 = false; // 用于记录是否已点击过确定按钮
+
+            setTimeout(function() {
+                if (!hasClickedFilter) {
+                    var filterButton = document.querySelector('span.dropdown-recommend.dropdown-text.fl');
+                    if (filterButton) {
+                        filterButton.click();
+                        console.log('已点击筛选按钮。');
+                        hasClickedFilter = true;
+                    } else {
+                        console.error('找不到筛选按钮');
+                    }
+                }
+            }, 3000); // 等待3秒后执行
+
+            setTimeout(function() {
+                if (!hasClickedApply) {
+                    var applyButton = document.querySelector('.recover-last-change-params .recover');
+                    if (applyButton) {
+                        applyButton.click();
+                        console.log('已点击应用按钮。');
+                        hasClickedApply = true;
+                    } else {
+                        console.error('找不到应用按钮');
+                    }
+                }
+            }, 4000); // 等待4秒后执行
+
+            setTimeout(function() {
+                if (!hasClickedConfirm) {
+                    var confirmButton = document.querySelector('.dialog-footer.filter-dialog-footer .btn.btn-sure');
+                    if (confirmButton) {
+                        confirmButton.click();
+                        console.log('已点击确定按钮。');
+                        hasClickedConfirm = true;
+                        setTimeout(function() {
+                            if (!hasClickedConfirm2) {
+                                var confirmButton2 = document.querySelector('.col-2');
+                                if (confirmButton2) {
+                                    confirmButton2.click();
+                                    console.log('已打开求职者');
+                                    hasClickedConfirm2 = true; // 标记已点击
+                                } else {
+                                    console.error('没打开求职者');
+                                }
+                            }
+                        }, 3000); // 等待5秒后执行（考虑到前两个操作的延迟）
+                    } else {
+                        console.error('找不到确定按钮');
+                    }
+                }
+            }, 7000); // 等待5秒后执行
+        } else {
+            console.error('找不到指定的下拉菜单项');
+        }
+    }
+function analyzeResumeWithGPT3(resumeContent, callback) {
+    // 处理简历内容，如果有"牛人分析器"字样，则去除它及后面的所有内容
+    const endIndex = resumeContent.indexOf('牛人分析器');
+    if (endIndex !== -1) {
+        resumeContent = resumeContent.substring(0, endIndex).trim();
+    }
+    console.log('开始分析简历，发送给GPT的信息:', resumeContent);
+    GM_xmlhttpRequest({
+        method: "POST",
+        url: "https://api.openai.com/v1/chat/completions",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + OPENAI_API_KEY
+        },
+        data: JSON.stringify({
+            model: "gpt-3.5-turbo",
+            messages: [
+                {
+                    role: "system",
+                    content: "根据以下简历内容，评估此人是否符合工作要求，只需回答'符合'或者'不符合,并用20个字以内简单说明原因,注意，我判断的标准非常简单，简历是不是瞎凑合写的，瞎凑合的标准包括有错字，必须要有美容或者美体或者SPA或者按摩及其相关的经历，例如如果之前做过美容师、美体师、按摩师就可以，其他的则不考虑"
+                },
+                {
+                    role: "user",
+                    content: resumeContent
+                }
+            ]
+        }),
+        onload: function(response) {
+            const result = JSON.parse(response.responseText);
+            console.log('收到GPT的结果:', result);
+            if (result.error) {
+                console.error('发生错误:', result.error.message);
+                return;
+            }
+            const analysisResult = result.choices && result.choices.length > 0 ? result.choices[0].message.content : "";
+
+
+            // 添加数据到数组，这里需要确保传递正确的简历内容和分析结果
+            addDataToInterviewData(resumeContent, analysisResult.trim());
+
+            // 执行回调
+            if (callback) {
+                callback(analysisResult.trim());
+            }
+        },
+        onerror: function(error) {
+            console.error('请求GPT-3 API时发生错误:', error);
+        }
+    });
+}
+
+
+    function clickNextResume() {
+        var nextResumeButton = document.querySelector('.resume-next .resume-turn-btn-bg');
+        if (nextResumeButton) {
+            console.log('找到下一个简历按钮，正在执行点击动作');
+            nextResumeButton.click();
+            console.log('成功点击了下一个简历按钮');
+
+            // 点击后等待页面刷新并加载新的简历信息，然后继续分析
+            setTimeout(function() {
+                clickGreetButtonIfExperienceIsGood();
+            }, 5000); // 假设5秒足够加载新的简历信息
+        } else {
+            console.error('找不到下一个简历按钮');
+        }
+    }
+
+    function clickGreetButtonIfExperienceIsGood() {
+        const resumeContainerElement = document.querySelector('.resume-item-pop-box .resume-item-content');
+        const greetButtonSelector = '.resumeGreet .btn-greet';
+
+        if (resumeContainerElement) {
+            const resumeContent = resumeContainerElement.innerText;
+            console.log('分析到的简历信息:', resumeContent);
+
+            analyzeResumeWithGPT3(resumeContent, function(analysisResult) {
+                console.log('根据GPT的分析结果:', analysisResult);
+                if (!analysisResult.includes('不符合')) {
+                    const greetButton = document.querySelector(greetButtonSelector);
+                    if (greetButton) {
+                        console.log('找到打招呼按钮，正在执行点击动作');
+                        greetButton.click();
+                        console.log('成功点击了打招呼按钮');
+                        setTimeout(clickNextResume, 1000); // 点击打招呼后等待1秒点击下一个简历按钮
+                    } else {
+                        console.error('找不到打招呼按钮');
+                    }
+                } else {
+                    console.log('GPT分析结果表示经验不足，点击下一个简历');
+                    clickNextResume(); // 直接点击下一个简历按钮
+                }
+            });
+        } else {
+            console.error('找不到包含履历信息的元素');
+        }
+    }
+
+    window.addEventListener('load', function() {
+        addDownloadButton();
+        setTimeout(clickDropDownMenu, 5000); // 页面加载后等待1秒再点击下拉菜单
+        setTimeout(clickGreetButtonIfExperienceIsGood, 25000); // 额外延时确保内容加载
+    });
+})();
